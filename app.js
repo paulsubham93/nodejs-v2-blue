@@ -1,39 +1,65 @@
-var port = process.env.PORT || 3000,
-    http = require('http'),
-    fs = require('fs'),
-    html = fs.readFileSync('index.html');
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
 
-var log = function(entry) {
-    fs.appendFileSync('/tmp/sample-app.log', new Date().toISOString() + ' - ' + entry + '\n');
+const port = process.env.PORT || 3000;
+const indexPath = path.join(__dirname, 'index.html');
+const html = fs.readFileSync(indexPath, 'utf8');
+const logPath = path.join('/tmp', 'sample-app.log');
+
+const log = (entry) => {
+  const line = `${new Date().toISOString()} - ${entry}\n`;
+  fs.appendFile(logPath, line, (err) => {
+    if (err) {
+      console.error('Failed to write log:', err);
+    }
+  });
 };
 
-var server = http.createServer(function (req, res) {
-    if (req.method === 'POST') {
-        var body = '';
+const sendResponse = (res, statusCode, headers, body) => {
+  res.writeHead(statusCode, headers);
+  res.end(body);
+};
 
-        req.on('data', function(chunk) {
-            body += chunk;
-        });
+const sendHtml = (res) =>
+  sendResponse(res, 200, { 'Content-Type': 'text/html; charset=utf-8' }, html);
+const sendPlainOk = (res) =>
+  sendResponse(res, 200, { 'Content-Type': 'text/plain; charset=utf-8' }, 'OK');
 
-        req.on('end', function() {
-            if (req.url === '/') {
-                log('Received message: ' + body);
-            } else if (req.url = '/scheduled') {
-                log('Received task ' + req.headers['x-aws-sqsd-taskname'] + ' scheduled at ' + req.headers['x-aws-sqsd-scheduled-at']);
-            }
+const server = http.createServer((req, res) => {
+  if (req.method === 'POST') {
+    let body = '';
 
-            res.writeHead(200, 'OK', {'Content-Type': 'text/plain'});
-            res.end();
-        });
-    } else {
-        res.writeHead(200);
-        res.write(html);
-        res.end();
-    }
+    req.on('data', (chunk) => {
+      body += chunk;
+    });
+
+    req.on('end', () => {
+      if (req.url === '/') {
+        log(`Received message: ${body}`);
+      } else if (req.url === '/scheduled') {
+        log(
+          `Received task ${req.headers['x-aws-sqsd-taskname']} scheduled at ${req.headers['x-aws-sqsd-scheduled-at']}`,
+        );
+      }
+
+      sendPlainOk(res);
+    });
+
+    req.on('error', (err) => {
+      console.error('Request error:', err);
+      sendResponse(
+        res,
+        400,
+        { 'Content-Type': 'text/plain; charset=utf-8' },
+        'Bad Request',
+      );
+    });
+  } else {
+    sendHtml(res);
+  }
 });
 
-// Listen on port 3000, IP defaults to 127.0.0.1
-server.listen(port);
-
-// Put a friendly message on the terminal
-console.log('Server running at http://127.0.0.1:' + port + '/');
+server.listen(port, () => {
+  console.log(`Server running at http://127.0.0.1:${port}/`);
+});
